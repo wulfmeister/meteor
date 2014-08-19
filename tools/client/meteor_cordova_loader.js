@@ -70,7 +70,18 @@
     document.getElementsByTagName('head')[0].appendChild(styleTag);
   };
 
+  // We keep trying to load until something happens. This is an unfortunate case
+  // of Cordova File APIs not working all the time.
+  var tryLoadingTimeout;
+  var loaded = false;
+
   var loadAssetsFromManifest = function (manifest, urlPrefix) {
+    clearTimeout(tryLoadingTimeout);
+    if (loaded) {
+      return;
+    }
+    loaded = true;
+
     each(manifest, function (item) {
       var url = urlPrefix + (item.url ? item.url.substring(1) : '');
       if (item.type === 'js')
@@ -117,32 +128,33 @@
   };
 
   var loadApp = function (localPathPrefix) {
+    tryLoadingTimeout = setTimeout(function () {
+      loadApp(localPathPrefix);
+    }, 3000);
 
-    readFile(localPathPrefix + 'version',
-      function (err, version) {
+    readFile(localPathPrefix + 'version', function (err, version) {
+      if (err) {
+        fallback();
+        return;
+      }
+
+      var versionPrefix = localPathPrefix + version + '/';
+
+      // We have a version string, now read the new version
+      readFile(versionPrefix + 'manifest.json', function (err, res) {
         if (err) {
-          fallback();
+          fallback(err);
           return;
         }
 
-        var versionPrefix = localPathPrefix + version + '/';
+        var program = JSON.parse(res);
+        // update the version we are loading
+        __meteor_runtime_config__.autoupdateVersionCordova = version;
+        // update the public settings
+        __meteor_runtime_config__.PUBLIC_SETTINGS = program.PUBLIC_SETTINGS;
 
-        // We have a version string, now read the new version
-        readFile(versionPrefix + 'manifest.json',
-            function (err, res) {
-          if (err) {
-            fallback(err);
-            return;
-          }
-
-          var program = JSON.parse(res);
-          // update the version we are loading
-          __meteor_runtime_config__.autoupdateVersionCordova = version;
-          // update the public settings
-          __meteor_runtime_config__.PUBLIC_SETTINGS = program.PUBLIC_SETTINGS;
-
-          loadAssetsFromManifest(program.manifest, versionPrefix);
-        });
+        loadAssetsFromManifest(program.manifest, versionPrefix);
+      });
     });
   };
 
